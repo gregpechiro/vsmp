@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -43,6 +44,10 @@ func newConfig() (*config, error) {
 
 	if config.MovieFilePath == "" {
 		return nil, fmt.Errorf("movie path missing. Please set a movie path om the config file")
+	}
+
+	if _, err := os.Stat(config.MovieFilePath); err != nil {
+		return nil, fmt.Errorf("could not find movie %s. Please check the path in the config: %v", config.MovieFilePath, err)
 	}
 
 	if config.MaxFrames < 1 {
