@@ -4,63 +4,61 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"os/exec"
 	"time"
 
 	"github.com/veandco/go-sdl2/img"
 	"github.com/veandco/go-sdl2/sdl"
 )
 
-var quitError = errors.New("quit")
+var errQuit = errors.New("quit")
 
 type scene struct {
-	bg       *sdl.Texture
-	r        *sdl.Renderer
-	quitMenu *sdl.MessageBoxData
-	config   *config
+	frameTexture *sdl.Texture
+	renderer     *sdl.Renderer
+	quitMenu     *sdl.MessageBoxData
+	config       *config
 }
 
-func newScene(r *sdl.Renderer) (*scene, error) {
+func newScene(renderer *sdl.Renderer) (*scene, error) {
 
-	var bg *sdl.Texture
-	var err error
+	var frameTexture *sdl.Texture
 
-	sdl.Do(func() {
-		file := fmt.Sprintf("resources/imgs/0%d.jpg", 0)
-		bg, err = img.LoadTexture(r, file)
-	})
+	config, err := newConfig()
 	if err != nil {
-		return nil, fmt.Errorf("could not load image: %v", err)
-	}
-
-	s := &scene{
-		bg:       bg,
-		r:        r,
-		quitMenu: newQuitMenu(),
-		config:   newConfig(),
-	}
-
-	if err := s.paint(); err != nil {
 		return nil, err
 	}
 
-	return s, nil
+	scene := &scene{
+		frameTexture: frameTexture,
+		renderer:     renderer,
+		quitMenu:     newQuitMenu(),
+		config:       config,
+	}
+
+	if err := scene.paint(); err != nil {
+		return nil, err
+	}
+
+	return scene, nil
 }
 
-func (s *scene) run(events chan sdl.Event) <-chan error {
+func (scene *scene) run(events chan sdl.Event) <-chan error {
 	errc := make(chan error)
 	go func() {
 		defer close(errc)
 
-		ticker := time.NewTicker(s.config.tick * time.Second)
+		ticker := time.NewTicker(scene.config.tick * time.Second)
 		for {
-			if s.config.updateTick {
-				ticker.Reset(s.config.tick * time.Second)
-				s.config.updateTick = false
+			if scene.config.updateTick {
+				ticker.Reset(scene.config.tick * time.Second)
+				scene.config.updateTick = false
 			}
 			select {
-			case e := <-events:
-				if err := s.handleEvent(e); err != nil {
-					if err == quitError {
+			case event := <-events:
+				if err := scene.handleEvent(event); err != nil {
+					if err == errQuit {
 						return
 					}
 					if err != nil {
@@ -68,8 +66,8 @@ func (s *scene) run(events chan sdl.Event) <-chan error {
 					}
 				}
 			case <-ticker.C:
-				fmt.Println("tick")
-				if err := s.paint(); err != nil {
+				fmt.Printf("Frame Number: %d\n", scene.config.CurrentFrame)
+				if err := scene.paint(); err != nil {
 					errc <- err
 				}
 			}
@@ -79,24 +77,24 @@ func (s *scene) run(events chan sdl.Event) <-chan error {
 	return errc
 }
 
-func (s *scene) handleEvent(event sdl.Event) error {
-	switch t := event.(type) {
+func (scene *scene) handleEvent(event sdl.Event) error {
+	switch typ := event.(type) {
 	case *sdl.QuitEvent:
-		return quitError
+		return errQuit
 	case *sdl.KeyboardEvent:
-		if t.State == 1 && t.Keysym.Mod == 4160 {
-			switch t.Keysym.Sym {
+		if typ.State == 1 && typ.Keysym.Mod == 4160 {
+			switch typ.Keysym.Sym {
 			case 27:
-				if err := s.quit(); err != nil {
+				if err := scene.quit(); err != nil {
 					return err
 				}
 			case 48, 49, 50, 51, 52, 53, 54, 55, 56, 57:
-				tick := t.Keysym.Sym - 48
+				tick := time.Duration(typ.Keysym.Sym - 48)
 				if tick == 0 {
-					tick = 10
+					tick = scene.config.DefaultTick
 				}
-				s.config.tick = time.Duration(tick)
-				s.config.updateTick = true
+				scene.config.tick = time.Duration(tick)
+				scene.config.updateTick = true
 			default:
 			}
 		}
@@ -108,37 +106,98 @@ func (s *scene) handleEvent(event sdl.Event) error {
 	return nil
 }
 
-func (s *scene) quit() error {
-	button, err := sdl.ShowMessageBox(s.quitMenu)
+func (scene *scene) quit() error {
+	button, err := sdl.ShowMessageBox(scene.quitMenu)
 	if err != nil {
 		return err
 	}
 	if button == 1 {
-		return quitError
+		return errQuit
 	}
 	return nil
 }
 
-func (s *scene) paint() error {
+func (scene *scene) paint() error {
 	var err error
 
-	sdl.Do(func() {
-		s.bg.Destroy()
-	})
-
-	sdl.Do(func() {
-		file := fmt.Sprintf("resources/imgs/0%d.jpg", s.config.current)
-		s.bg, err = img.LoadTexture(s.r, file)
-	})
-	if err != nil {
-		return fmt.Errorf("could not load image: %v", err)
+	if err := scene.loadFrameTexture(); err != nil {
+		return err
 	}
 
-	limitW, limitH, _ := s.r.GetOutputSize()
-	_, _, textureW, textureH, _ := s.bg.Query()
+	sdl.Do(func() {
+		scene.renderer.Clear()
+		err = scene.renderer.Copy(scene.frameTexture, nil, scene.getScaledRect())
+	})
+	if err != nil {
+		return fmt.Errorf("could not copy frame: %v", err)
+	}
 
-	var dstRect *sdl.Rect
-	if textureW > limitW || textureH > limitH {
+	sdl.Do(func() {
+		scene.renderer.Present()
+	})
+
+	scene.config.increaseFrame()
+
+	scene.config.saveConfig()
+
+	return nil
+}
+
+func (scene *scene) loadFrameTexture() error {
+	var err error
+
+	fileExists := true
+
+	filePath := fmt.Sprintf("resources/imgs/%d.jpg", scene.config.CurrentFrame)
+	if !scene.config.CacheImages {
+		filePath = "resources/imgs/currentframe.jpg"
+	}
+
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		fileExists = false
+	}
+
+	if fileExists && !scene.config.CacheImages {
+		if err := os.Remove(filePath); err != nil {
+			return fmt.Errorf("could not remove existing image: %v", err)
+		}
+		fileExists = false
+	}
+
+	if !fileExists {
+		cmd := exec.Command("ffmpeg",
+			"-i", scene.config.MovieFilePath,
+			"-vf", fmt.Sprintf("select=gte(n\\, %d)", scene.config.CurrentFrame),
+			"-vframes", "1",
+			"-vsync", "0",
+			filePath,
+		)
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("could not generate frame image: %v", err)
+		}
+	}
+
+	sdl.Do(func() {
+		scene.frameTexture.Destroy()
+	})
+
+	sdl.Do(func() {
+		scene.frameTexture, err = img.LoadTexture(scene.renderer, filePath)
+	})
+	if err != nil {
+		return fmt.Errorf("could not load frame image: %v", err)
+	}
+
+	return nil
+}
+
+func (scene *scene) getScaledRect() *sdl.Rect {
+	limitW, limitH, _ := scene.renderer.GetOutputSize()
+	_, _, textureW, textureH, _ := scene.frameTexture.Query()
+
+	var rect *sdl.Rect
+	if textureW > limitW || textureH > limitH || (textureW < limitW || textureH < limitH) {
 		scale := float64(limitW) / float64(textureW)
 		scaleH := float64(limitH) / float64(textureH)
 
@@ -160,33 +219,15 @@ func (s *scene) paint() error {
 			offsetY = (limitH - dstH) / 2
 		}
 
-		dstRect = &sdl.Rect{offsetX, offsetY, dstW, dstH}
+		rect = &sdl.Rect{X: offsetX, Y: offsetY, W: dstW, H: dstH}
 	}
 
-	sdl.Do(func() {
-		s.r.Clear()
-		err = s.r.Copy(s.bg, nil, dstRect)
-	})
-	if err != nil {
-		return fmt.Errorf("could not copy background: %v", err)
-	}
-
-	sdl.Do(func() {
-		s.r.Present()
-	})
-
-	if s.config.current >= s.config.max {
-		s.config.current = 0
-	} else {
-		s.config.current++
-	}
-
-	return nil
+	return rect
 }
 
-func (s *scene) destroy() {
+func (scene *scene) destroy() {
 	sdl.Do(func() {
-		s.bg.Destroy()
+		scene.frameTexture.Destroy()
 	})
 }
 
@@ -207,15 +248,15 @@ func newQuitMenu() *sdl.MessageBoxData {
 		Colors: [5]sdl.MessageBoxColor{
 			/* .colors (.r, .g, .b) */
 			/* [SDL_MESSAGEBOX_COLOR_BACKGROUND] */
-			{R: 255, G: 0, B: 0},
+			{R: 62, G: 62, B: 62},
 			/* [SDL_MESSAGEBOX_COLOR_TEXT] */
-			{R: 0, G: 255, B: 0},
+			{R: 221, G: 221, B: 221},
 			/* [SDL_MESSAGEBOX_COLOR_BUTTON_BORDER] */
-			{R: 255, G: 255, B: 0},
+			{R: 20, G: 20, B: 20},
 			/* [SDL_MESSAGEBOX_COLOR_BUTTON_BACKGROUND] */
-			{R: 0, G: 0, B: 255},
+			{R: 150, G: 150, B: 150},
 			/* [SDL_MESSAGEBOX_COLOR_BUTTON_SELECTED] */
-			{R: 255, G: 0, B: 255},
+			{R: 65, G: 65, B: 65},
 		},
 	}
 

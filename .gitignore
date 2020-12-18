@@ -1,2 +1,3 @@
-resources/imgs/*
+resources
 vsmp
+config.json

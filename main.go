@@ -16,12 +16,11 @@ func main() {
 			os.Exit(2)
 		}
 	})
-
 }
 
 func run() error {
-	var w *sdl.Window
-	var r *sdl.Renderer
+	var window *sdl.Window
+	var renderer *sdl.Renderer
 	var err error
 
 	sdl.Do(func() {
@@ -37,33 +36,33 @@ func run() error {
 	}()
 
 	sdl.Do(func() {
-		w, r, err = sdl.CreateWindowAndRenderer(800, 600, sdl.WINDOW_SHOWN|sdl.WINDOW_FULLSCREEN_DESKTOP)
+		window, renderer, err = sdl.CreateWindowAndRenderer(800, 600, sdl.WINDOW_SHOWN /*|sdl.WINDOW_FULLSCREEN_DESKTOP*/)
 	})
 	if err != nil {
 		return fmt.Errorf("could not create window: %v", err)
 	}
 	defer func() {
 		sdl.Do(func() {
-			w.Destroy()
+			window.Destroy()
 		})
 	}()
 
 	defer func() {
 		sdl.Do(func() {
-			r.Destroy()
+			renderer.Destroy()
 		})
 	}()
 
-	windowW, windowH = w.GetSize()
+	windowW, windowH = window.GetSize()
 
-	s, err := newScene(r)
+	scene, err := newScene(renderer)
 	if err != nil {
 		return fmt.Errorf("could not create scene: %v", err)
 	}
-	defer s.destroy()
+	defer scene.destroy()
 
 	events := make(chan sdl.Event)
-	errc := s.run(events)
+	errc := scene.run(events)
 
 	for {
 		select {
