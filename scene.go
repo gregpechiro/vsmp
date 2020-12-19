@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"time"
@@ -66,7 +65,6 @@ func (scene *scene) run(events chan sdl.Event) <-chan error {
 					}
 				}
 			case <-ticker.C:
-				fmt.Printf("Frame Number: %d\n", scene.config.CurrentFrame)
 				if err := scene.paint(); err != nil {
 					errc <- err
 				}
@@ -98,10 +96,7 @@ func (scene *scene) handleEvent(event sdl.Event) error {
 			default:
 			}
 		}
-
-	case *sdl.MouseMotionEvent, *sdl.WindowEvent, *sdl.CommonEvent, *sdl.MouseButtonEvent:
 	default:
-		log.Printf("unknown event %T: %v\n", event, &event)
 	}
 	return nil
 }
@@ -148,9 +143,9 @@ func (scene *scene) loadFrameTexture() error {
 
 	fileExists := true
 
-	filePath := fmt.Sprintf("resources/imgs/%d.jpg", scene.config.CurrentFrame)
+	filePath := fmt.Sprintf(scene.config.resourcesDir+"/imgs/%d.jpg", scene.config.CurrentFrame)
 	if !scene.config.CacheImages {
-		filePath = "resources/imgs/currentframe.jpg"
+		filePath = scene.config.resourcesDir + "/imgs/currentframe.jpg"
 	}
 
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
@@ -166,7 +161,7 @@ func (scene *scene) loadFrameTexture() error {
 
 	if !fileExists {
 		cmd := exec.Command("ffmpeg",
-			"-i", scene.config.MovieFilePath,
+			"-i", scene.config.movieFilePath,
 			"-vf", fmt.Sprintf("select=gte(n\\, %d)", scene.config.CurrentFrame),
 			"-vframes", "1",
 			"-vsync", "0",

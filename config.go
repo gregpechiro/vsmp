@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -20,10 +21,17 @@ type config struct {
 	DefaultTick   time.Duration
 	updateTick    bool
 	CacheImages   bool
-	MovieFilePath string
+	MovieFileName string
+	movieFilePath string
+	resourcesDir  string
 }
 
 func newConfig() (*config, error) {
+
+	executablePath, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("could not load base directory %v", err)
+	}
 
 	config := config{
 		CurrentFrame: 0,
@@ -31,9 +39,10 @@ func newConfig() (*config, error) {
 		DefaultTick:  120,
 		updateTick:   false,
 		CacheImages:  true,
+		resourcesDir: filepath.Dir(executablePath) + "/resources",
 	}
 
-	b, err := ioutil.ReadFile("resources/config.json")
+	b, err := ioutil.ReadFile(config.resourcesDir + "/config.json")
 	if err != nil {
 		return nil, fmt.Errorf("could not read config file %v", err)
 	}
@@ -42,12 +51,14 @@ func newConfig() (*config, error) {
 		return nil, fmt.Errorf("could not parse config file %v", err)
 	}
 
-	if config.MovieFilePath == "" {
-		return nil, fmt.Errorf("movie path missing. Please set a movie path om the config file")
+	if config.MovieFileName == "" {
+		return nil, fmt.Errorf("movie file name missing. Please set a movie file name in the config file")
 	}
 
-	if _, err := os.Stat(config.MovieFilePath); err != nil {
-		return nil, fmt.Errorf("could not find movie %s. Please check the path in the config: %v", config.MovieFilePath, err)
+	config.movieFilePath = config.resourcesDir + "/movie/" + config.MovieFileName
+
+	if _, err := os.Stat(config.movieFilePath); err != nil {
+		return nil, fmt.Errorf("could not find movie %s. Please check the path in the config: %v", config.movieFilePath, err)
 	}
 
 	if config.MaxFrames < 1 {
@@ -57,7 +68,7 @@ func newConfig() (*config, error) {
 			"-select_streams", "v:0",
 			"-show_entries", "stream=nb_frames",
 			"-of", "default=nokey=1:noprint_wrappers=1",
-			config.MovieFilePath,
+			config.movieFilePath,
 		)
 
 		stdout, err := cmd.StdoutPipe()
@@ -87,8 +98,6 @@ func newConfig() (*config, error) {
 
 	config.tick = config.DefaultTick
 
-	fmt.Printf("Loaded Config: %v\n", config)
-
 	return &config, nil
 }
 
@@ -106,7 +115,7 @@ func (config *config) saveConfig() {
 		log.Printf("Error --> json.Marshal(config): %v", err)
 	}
 
-	if err := ioutil.WriteFile("resources/config.json", b, 0644); err != nil {
-		log.Printf("Error --> ioutil.WriteFile(\"resources/config.json\", b, 0644): %v", err)
+	if err := ioutil.WriteFile(config.resourcesDir+"/config.json", b, 0644); err != nil {
+		log.Printf("Error --> ioutil.WriteFile(\""+config.resourcesDir+"/config.json\", b, 0644): %v", err)
 	}
 }

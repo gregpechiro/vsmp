@@ -35,8 +35,12 @@ func run() error {
 		})
 	}()
 
+	if _, err := sdl.ShowCursor(sdl.DISABLE); err != nil {
+		return fmt.Errorf("error disabling cursor %v", err)
+	}
+
 	sdl.Do(func() {
-		window, renderer, err = sdl.CreateWindowAndRenderer(800, 600, sdl.WINDOW_SHOWN /*|sdl.WINDOW_FULLSCREEN_DESKTOP*/)
+		window, renderer, err = sdl.CreateWindowAndRenderer(800, 600, sdl.WINDOW_SHOWN|sdl.WINDOW_FULLSCREEN_DESKTOP)
 	})
 	if err != nil {
 		return fmt.Errorf("could not create window: %v", err)
