@@ -102,10 +102,9 @@ func newConfig() (*config, error) {
 }
 
 func (config *config) increaseFrame() {
+	config.CurrentFrame++
 	if config.CurrentFrame >= config.MaxFrames {
 		config.CurrentFrame = 0
-	} else {
-		config.CurrentFrame++
 	}
 }
 
